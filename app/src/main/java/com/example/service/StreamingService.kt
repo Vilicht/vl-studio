@@ -220,6 +220,7 @@ class StreamingService : Service(), ConnectChecker {
             // Token MediaProjection hanya boleh dipakai SEKALI; engine yang memegangnya.
             val mp = (getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager)
                 .getMediaProjection(resultCode, data)
+                ?: throw IllegalStateException("MediaProjection token tidak valid atau null")
             val eng = StudioEngine(this, this)
             eng.onProjectionStopped = {
                 if (!stopping) {
