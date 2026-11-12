@@ -6,9 +6,6 @@ import android.os.Build
 import androidx.annotation.RequiresApi
 import com.pedro.encoder.input.gl.render.filters.BaseFilterRender
 import com.pedro.encoder.utils.gl.GlUtil
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
-import java.nio.FloatBuffer
 
 @RequiresApi(api = Build.VERSION_CODES.JELLY_BEAN_MR2)
 class ChromaKeyFilterRender : BaseFilterRender() {
@@ -120,6 +117,11 @@ class ChromaKeyFilterRender : BaseFilterRender() {
         GLES20.glUniform1f(uSmoothnessHandle, smoothness)
         GLES20.glUniform1f(uSpillHandle, spill)
         GLES20.glUniform1f(uOpacityHandle, opacity)
+    }
+
+    override fun disableResources() {
+        GLES20.glDisableVertexAttribArray(aPositionHandle)
+        GLES20.glDisableVertexAttribArray(aTextureCoordHandle)
     }
 
     override fun release() {
