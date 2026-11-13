@@ -17,13 +17,35 @@ jobs:
         run: |
           if [ -f "vl-studio-fixed.zip" ]; then
             unzip -o vl-studio-fixed.zip
-            # Jika hasil ekstrak masuk ke subfolder, pindahkan isinya ke root
             SUBDIR=$(find . -maxdepth 1 -type d ! -name "." ! -name ".git" ! -name ".github" ! -name "app" ! -name "gradle" | head -n 1)
             if [ -n "$SUBDIR" ] && [ -d "$SUBDIR/app" ]; then
               cp -rf "$SUBDIR"/* .
               rm -rf "$SUBDIR"
             fi
           fi
+
+      - name: Auto-patch error kompilasi bawaan AI Studio
+        run: |
+          python3 -c '
+          import pathlib
+
+          # 1. Patch ChromaKeyFilterRender.kt (tambah disableResources)
+          ck = pathlib.Path("app/src/main/java/com/example/gl/ChromaKeyFilterRender.kt")
+          if ck.exists():
+              txt = ck.read_text()
+              if "override fun disableResources()" not in txt:
+                  txt = txt.replace("override fun release()", "override fun disableResources() {}\n\n    override fun release()")
+                  ck.write_text(txt)
+
+          # 2. Patch StreamingService.kt (pastikan MediaProjection non-null)
+          ss = pathlib.Path("app/src/main/java/com/example/service/StreamingService.kt")
+          if ss.exists():
+              txt = ss.read_text()
+              target = ".getMediaProjection(resultCode, data)"
+              if target in txt and "?: throw IllegalStateException" not in txt:
+                  txt = txt.replace(target, target + " ?: throw IllegalStateException(\"MediaProjection null\")")
+                  ss.write_text(txt)
+          '
 
       - name: Setup Java 21
         uses: actions/setup-java@v4
