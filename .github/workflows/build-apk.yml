@@ -13,6 +13,18 @@ jobs:
       - name: Checkout kode
         uses: actions/checkout@v4
 
+      - name: Ekstrak vl-studio-fixed.zip jika ada
+        run: |
+          if [ -f "vl-studio-fixed.zip" ]; then
+            unzip -o vl-studio-fixed.zip
+            # Jika hasil ekstrak masuk ke subfolder, pindahkan isinya ke root
+            SUBDIR=$(find . -maxdepth 1 -type d ! -name "." ! -name ".git" ! -name ".github" ! -name "app" ! -name "gradle" | head -n 1)
+            if [ -n "$SUBDIR" ] && [ -d "$SUBDIR/app" ]; then
+              cp -rf "$SUBDIR"/* .
+              rm -rf "$SUBDIR"
+            fi
+          fi
+
       - name: Setup Java 21
         uses: actions/setup-java@v4
         with:
