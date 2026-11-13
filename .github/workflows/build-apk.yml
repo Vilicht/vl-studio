@@ -45,6 +45,15 @@ jobs:
               if target in txt and "?: throw IllegalStateException" not in txt:
                   txt = txt.replace(target, target + " ?: throw IllegalStateException(\"MediaProjection null\")")
                   ss.write_text(txt)
+
+          # 3. Patch MainActivity.kt (tambah import rememberSaveable)
+          ma = pathlib.Path("app/src/main/java/com/example/MainActivity.kt")
+          if ma.exists():
+              txt = ma.read_text()
+              imp = "import androidx.compose.runtime.saveable.rememberSaveable"
+              if "rememberSaveable" in txt and imp not in txt:
+                  txt = txt.replace("package com.example\n", "package com.example\n\n" + imp + "\n", 1)
+                  ma.write_text(txt)
           '
 
       - name: Setup Java 21
