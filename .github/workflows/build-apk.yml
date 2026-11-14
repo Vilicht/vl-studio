@@ -35,7 +35,7 @@ jobs:
       - name: Auto-patch error kompilasi
         run: |
           python3 - << 'EOF'
-          import pathlib, re
+          import pathlib
 
           # 1. Patch ChromaKeyFilterRender.kt
           ck = pathlib.Path("app/src/main/java/com/example/gl/ChromaKeyFilterRender.kt")
@@ -63,19 +63,14 @@ jobs:
                   txt = txt.replace("package com.example\n", "package com.example\n\n" + imp + "\n", 1)
                   ma.write_text(txt)
 
-          # 4. Patch PropertiesPanel.kt baris 181 (named argument onClick)
+          # 4. Patch trailing lambda QuickAction di PropertiesPanel.kt baris 181
           pp = pathlib.Path("app/src/main/java/com/example/ui/components/PropertiesPanel.kt")
           if pp.exists():
-              lines = pp.read_text().splitlines()
-              for i in range(max(0, 175), min(len(lines), 186)):
-                  print(f"LINE {i+1}: {lines[i]}")
-              if len(lines) >= 181:
-                  l = lines[180]
-                  # Ubah lambda tanpa nama di posisi argumen menjadi onClick = { ... }
-                  if "onClick =" not in l and "{ onUpdateSource(" in l:
-                      l = l.replace("{ onUpdateSource(", "onClick = { onUpdateSource(", 1)
-                      lines[180] = l
-                      pp.write_text("\n".join(lines) + "\n")
+              txt = pp.read_text()
+              bad = '"action_reset_rotation") { onSetRotation(0f) }'
+              good = '"action_reset_rotation", { onSetRotation(0f) })'
+              if bad in txt:
+                  pp.write_text(txt.replace(bad, good))
           EOF
 
       - name: Setup Java 21
