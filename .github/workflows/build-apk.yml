@@ -109,7 +109,7 @@ jobs:
           if ma.exists() and "rememberSaveable" in ma.read_text():
               add_import("app/src/main/java/com/example/MainActivity.kt", "import androidx.compose.runtime.saveable.rememberSaveable")
 
-          # 4. Patch PropertiesPanel.kt (baris 181 & baris 283-288)
+          # 4. Patch semua trailing lambda di PropertiesPanel.kt
           pp = pathlib.Path("app/src/main/java/com/example/ui/components/PropertiesPanel.kt")
           if pp.exists():
               txt = pp.read_text()
@@ -118,13 +118,15 @@ jobs:
               if bad in txt:
                   txt = txt.replace(bad, good)
               lines = txt.splitlines()
-              for idx in range(280, min(292, len(lines))):
-                  if ") {" in lines[idx] and "onChange" not in lines[idx]:
-                      lines[idx] = lines[idx].replace(") {", ", onChange = {")
-                      for j in range(idx, min(idx + 4, len(lines))):
-                          if lines[j].rstrip().endswith("}"):
-                              lines[j] = lines[j].rstrip() + ")"
-                              break
+              for idx in range(len(lines)):
+                  if ") {" in lines[idx] and "onChange" not in lines[idx] and "onClick" not in lines[idx]:
+                      block = "\n".join(lines[idx:min(idx + 4, len(lines))])
+                      if "it" in block:
+                          lines[idx] = lines[idx].replace(") {", ", onChange = {")
+                          for j in range(idx, min(idx + 4, len(lines))):
+                              if lines[j].rstrip().endswith("}"):
+                                  lines[j] = lines[j].rstrip() + ")"
+                                  break
               pp.write_text("\n".join(lines) + "\n")
 
           # 5. Patch universal untuk items(...) di LeftPanel.kt
