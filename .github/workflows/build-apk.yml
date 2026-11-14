@@ -34,12 +34,10 @@ jobs:
           BUILD_DIR=""
           CAND=""
 
-          # 1) Cari ZIP target dulu (vilicht-live-studio-audit-stage3.zip)
           for f in "$ZIP_BASE.zip" "$ZIP_BASE"; do
             if [ -f "$f" ] && unzip -tqq "$f" >/dev/null 2>&1; then CAND="$f"; break; fi
           done
 
-          # 2) Fallback: ZIP lain di repo
           if [ -z "$CAND" ]; then
             while IFS= read -r f; do
               if unzip -tqq "$f" >/dev/null 2>&1; then CAND="$f"; break; fi
@@ -169,7 +167,12 @@ jobs:
 
       - name: Build Debug APK
         working-directory: ${{ env.BUILD_DIR }}
-        run: gradle assembleDebug $GRADLE_ARGS
+        run: |
+          gradle assembleDebug --no-daemon --console=plain -Dorg.gradle.jvmargs=-Xmx4g > build.log 2>&1 || (
+            echo "=== DAFTAR ERROR KOTLIN ==="
+            grep -E "^e: |Unresolved|mismatch|No value passed|Overload" build.log || tail -n 60 build.log
+            exit 1
+          )
 
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
