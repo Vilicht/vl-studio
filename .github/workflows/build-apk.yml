@@ -1,4 +1,5 @@
-name: Build Android APK
+
+name: VILICHT LIVE STUDIO - Auto Extract & Build APK
 
 on:
   push:
@@ -8,91 +9,59 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
 
     steps:
-      - name: Checkout kode
+      - name: Checkout Repository
         uses: actions/checkout@v4
-
-      - name: Ekstrak ZIP proyek terbaru
-        run: |
-          ZIP_FILE=""
-          if [ -f "vilicht-live-studio-build-ready.zip" ]; then
-            ZIP_FILE="vilicht-live-studio-build-ready.zip"
-          elif [ -f "vl-studio-fixed.zip" ]; then
-            ZIP_FILE="vl-studio-fixed.zip"
-          fi
-
-          if [ -n "$ZIP_FILE" ]; then
-            echo "Mengekstrak $ZIP_FILE..."
-            unzip -o "$ZIP_FILE"
-            SUBDIR=$(find . -maxdepth 1 -type d ! -name "." ! -name ".git" ! -name ".github" ! -name "app" ! -name "gradle" | head -n 1)
-            if [ -n "$SUBDIR" ] && [ -d "$SUBDIR/app" ]; then
-              cp -rf "$SUBDIR"/* .
-              rm -rf "$SUBDIR"
-            fi
-          fi
-
-      - name: Auto-patch error kompilasi
-        run: |
-          python3 - << 'EOF'
-          import pathlib
-
-          # 1. Patch ChromaKeyFilterRender.kt
-          ck = pathlib.Path("app/src/main/java/com/example/gl/ChromaKeyFilterRender.kt")
-          if ck.exists():
-              txt = ck.read_text()
-              if "override fun disableResources()" not in txt:
-                  txt = txt.replace("override fun release()", "override fun disableResources() {}\n\n    override fun release()")
-                  ck.write_text(txt)
-
-          # 2. Patch StreamingService.kt
-          ss = pathlib.Path("app/src/main/java/com/example/service/StreamingService.kt")
-          if ss.exists():
-              txt = ss.read_text()
-              target = ".getMediaProjection(resultCode, data)"
-              if target in txt and "?: throw IllegalStateException" not in txt:
-                  txt = txt.replace(target, target + " ?: throw IllegalStateException(\"MediaProjection null\")")
-                  ss.write_text(txt)
-
-          # 3. Patch MainActivity.kt
-          ma = pathlib.Path("app/src/main/java/com/example/MainActivity.kt")
-          if ma.exists():
-              txt = ma.read_text()
-              imp = "import androidx.compose.runtime.saveable.rememberSaveable"
-              if "rememberSaveable" in txt and imp not in txt:
-                  txt = txt.replace("package com.example\n", "package com.example\n\n" + imp + "\n", 1)
-                  ma.write_text(txt)
-
-          # 4. Patch trailing lambda QuickAction di PropertiesPanel.kt baris 181
-          pp = pathlib.Path("app/src/main/java/com/example/ui/components/PropertiesPanel.kt")
-          if pp.exists():
-              txt = pp.read_text()
-              bad = '"action_reset_rotation") { onSetRotation(0f) }'
-              good = '"action_reset_rotation", { onSetRotation(0f) })'
-              if bad in txt:
-                  pp.write_text(txt.replace(bad, good))
-          EOF
 
       - name: Setup Java 21
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
+          distribution: temurin
           java-version: '21'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.3.1'
 
-      - name: Generate Debug Keystore
+      - name: Extract Project ZIP
         run: |
-          keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          ZIP_FILE="vilicht-live-studio-audit-stage3.zip"
+
+          if [ ! -f "$ZIP_FILE" ]; then
+            echo "ERROR: File $ZIP_FILE tidak ditemukan!"
+            exit 1
+          fi
+
+          mkdir -p extracted
+          unzip -o "$ZIP_FILE" -d extracted
+
+          PROJECT_DIR="extracted/vl-studio-main"
+
+          if [ ! -d "$PROJECT_DIR/app" ]; then
+            echo "ERROR: Folder project Android tidak ditemukan!"
+            find extracted -maxdepth 3 -type d
+            exit 1
+          fi
+
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+
+      - name: Run Unit Tests
+        working-directory: ${{ github.workspace }}/extracted/vl-studio-main
+        run: gradle testDebugUnitTest --stacktrace
 
       - name: Build Debug APK
+        working-directory: ${{ github.workspace }}/extracted/vl-studio-main
         run: gradle assembleDebug --stacktrace
 
-      - name: Upload APK hasil build
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: app-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: VILICHT-LIVE-STUDIO-APK
+          path: extracted/vl-studio-main/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
