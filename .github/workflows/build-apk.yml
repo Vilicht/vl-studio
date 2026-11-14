@@ -2,36 +2,76 @@ name: Build Android APK
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "master" ]
+  pull_request:
   workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  ZIP_BASE: vilicht-live-studio-audit-stage3
+  GRADLE_VERSION: '9.3.1'
+  GRADLE_ARGS: --no-daemon --stacktrace -Dorg.gradle.jvmargs=-Xmx4g
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
 
     steps:
       - name: Checkout kode
         uses: actions/checkout@v4
 
-      - name: Ekstrak ZIP proyek terbaru
+      - name: Siapkan project (ekstrak ZIP otomatis)
+        shell: bash
         run: |
-          if [ -f "vilicht-live-studio-audit-stage3.zip" ]; then
-            ZIP_FILE="vilicht-live-studio-audit-stage3.zip"
+          set -euo pipefail
+          echo "Isi root repo:"; ls -la
+          BUILD_DIR=""
+
+          if [ -f settings.gradle.kts ] || [ -f settings.gradle ]; then
+            BUILD_DIR="$PWD"
+            echo "Project sudah berupa folder di root repo."
           else
-            ZIP_FILE=$(ls -t *.zip 2>/dev/null | head -n 1)
-          fi
-
-          if [ -n "$ZIP_FILE" ]; then
-            echo "Mengekstrak $ZIP_FILE..."
-            unzip -o "$ZIP_FILE"
-            SUBDIR=$(find . -maxdepth 1 -type d ! -name "." ! -name ".git" ! -name ".github" ! -name "app" ! -name "gradle" | head -n 1)
-            if [ -n "$SUBDIR" ] && [ -d "$SUBDIR/app" ]; then
-              cp -rf "$SUBDIR"/* .
-              rm -rf "$SUBDIR"
+            CAND=""
+            for f in "$ZIP_BASE.zip" "$ZIP_BASE"; do
+              if [ -f "$f" ] && unzip -tqq "$f" >/dev/null 2>&1; then CAND="$f"; break; fi
+            done
+            if [ -z "$CAND" ]; then
+              while IFS= read -r f; do
+                if unzip -tqq "$f" >/dev/null 2>&1; then CAND="$f"; break; fi
+              done < <(find . -maxdepth 2 -type f \( -iname '*vilicht*' -o -iname '*.zip' \) \
+                         -not -path './.git/*' -not -path './extracted/*' | sort)
             fi
+            if [ -z "$CAND" ]; then
+              echo "::error::Tidak ada file ZIP yang valid di repo. Upload ZIP project ke root repo (nama: $ZIP_BASE.zip)."
+              exit 1
+            fi
+            echo "ZIP project: $CAND"
+            rm -rf extracted && mkdir extracted
+            unzip -q -o "$CAND" -d extracted
+            SETTINGS="$(find extracted -maxdepth 4 \( -name settings.gradle.kts -o -name settings.gradle \) \
+                          -not -path '*/__MACOSX/*' | sort | head -n 1)"
+            if [ -z "$SETTINGS" ]; then
+              echo "::error::settings.gradle(.kts) tidak ditemukan di dalam ZIP."
+              find extracted -maxdepth 3 | head -50
+              exit 1
+            fi
+            BUILD_DIR="$(cd "$(dirname "$SETTINGS")" && pwd)"
           fi
 
-      - name: Auto-patch error kompilasi
+          echo "BUILD_DIR=$BUILD_DIR" >> "$GITHUB_ENV"
+          echo "Project di: $BUILD_DIR"
+          ls -la "$BUILD_DIR"
+          [ -d "$BUILD_DIR/app" ] || { echo "::error::Folder app/ tidak ada di project."; exit 1; }
+
+      - name: Auto-patch error kompilasi Kotlin
+        working-directory: ${{ env.BUILD_DIR }}
         run: |
           python3 - << 'EOF'
           import pathlib, re
@@ -71,14 +111,23 @@ jobs:
           if ma.exists() and "rememberSaveable" in ma.read_text():
               add_import("app/src/main/java/com/example/MainActivity.kt", "import androidx.compose.runtime.saveable.rememberSaveable")
 
-          # 4. Patch trailing lambda QuickAction di PropertiesPanel.kt
+          # 4. Patch PropertiesPanel.kt (baris 181 & baris 283-288)
           pp = pathlib.Path("app/src/main/java/com/example/ui/components/PropertiesPanel.kt")
           if pp.exists():
               txt = pp.read_text()
               bad = '"action_reset_rotation") { onSetRotation(0f) }'
               good = '"action_reset_rotation", { onSetRotation(0f) })'
               if bad in txt:
-                  pp.write_text(txt.replace(bad, good))
+                  txt = txt.replace(bad, good)
+              lines = txt.splitlines()
+              for idx in range(280, min(292, len(lines))):
+                  if ") {" in lines[idx] and "onChange" not in lines[idx]:
+                      lines[idx] = lines[idx].replace(") {", ", onChange = {")
+                      for j in range(idx, min(idx + 4, len(lines))):
+                          if lines[j].rstrip().endswith("}"):
+                              lines[j] = lines[j].rstrip() + ")"
+                              break
+              pp.write_text("\n".join(lines) + "\n")
 
           # 5. Patch universal untuk items(...) di LeftPanel.kt
           lp = pathlib.Path("app/src/main/java/com/example/ui/components/LeftPanel.kt")
@@ -95,20 +144,93 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '9.3.1'
+          gradle-version: ${{ env.GRADLE_VERSION }}
 
-      - name: Generate Debug Keystore
+      - name: Siapkan debug keystore dan file pendukung
+        shell: bash
+        working-directory: ${{ env.BUILD_DIR }}
         run: |
-          keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          set -euo pipefail
+          if [ ! -f debug.keystore ]; then
+            keytool -genkeypair -keystore debug.keystore -storepass android -alias androiddebugkey \
+              -keypass android -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+          if [ ! -f .env ] && [ -f .env.example ]; then cp .env.example .env; fi
+
+      - name: Unit test
+        id: unit
+        continue-on-error: true
+        working-directory: ${{ env.BUILD_DIR }}
+        run: gradle testDebugUnitTest $GRADLE_ARGS
 
       - name: Build Debug APK
-        run: gradle assembleDebug --stacktrace
+        working-directory: ${{ env.BUILD_DIR }}
+        run: gradle assembleDebug $GRADLE_ARGS
 
-      - name: Upload APK hasil build
+      - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: app-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: vilicht-live-studio-debug
+          path: ${{ env.BUILD_DIR }}/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+
+      - name: Upload laporan test dan build
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-reports
+          path: |
+            ${{ env.BUILD_DIR }}/app/build/reports/
+            ${{ env.BUILD_DIR }}/app/build/test-results/
+          if-no-files-found: ignore
+
+      - name: Cek kelengkapan secrets signing
+        id: signing
+        env:
+          KS: ${{ secrets.KEYSTORE_BASE64 }}
+          STORE_PASS: ${{ secrets.STORE_PASSWORD }}
+          KEY_PASS: ${{ secrets.KEY_PASSWORD }}
+        shell: bash
+        run: |
+          present=0
+          [ -n "$KS" ] && present=$((present + 1))
+          [ -n "$STORE_PASS" ] && present=$((present + 1))
+          [ -n "$KEY_PASS" ] && present=$((present + 1))
+          if [ "$present" -eq 3 ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "Release signing belum lengkap/tidak dikonfigurasi; hanya APK debug yang dibuat."
+          fi
+
+      - name: Build Release APK
+        if: steps.signing.outputs.available == 'true'
+        working-directory: ${{ env.BUILD_DIR }}
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          KEYSTORE_PATH="$RUNNER_TEMP/release.jks" gradle assembleRelease $GRADLE_ARGS
+
+      - name: Upload Release APK
+        if: steps.signing.outputs.available == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: vilicht-live-studio-release
+          path: ${{ env.BUILD_DIR }}/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+
+      - name: Status akhir (job gagal bila unit test gagal)
+        if: steps.unit.outcome == 'failure'
+        run: |
+          echo "::error::APK debug berhasil dibuat, tetapi unit test GAGAL. Lihat artifact 'build-reports'."
+          exit 1
