@@ -28,7 +28,7 @@ jobs:
         run: |
           pip install pillow --quiet
           python3 -c '
-          import pathlib
+          import pathlib, textwrap
           from PIL import Image
 
           # 1. Patch ChromaKeyFilterRender.kt
@@ -62,18 +62,15 @@ jobs:
           if master.exists():
               img = Image.open(master).convert("RGBA")
               w, h = img.size
-              # Crop 14% tepi luar untuk membuang area checkerboard transparan palsu
               margin_x = int(w * 0.14)
               margin_y = int(h * 0.14)
               cropped = img.crop((margin_x, margin_y, w - margin_x, h - margin_y))
               icon_512 = cropped.resize((512, 512), Image.Resampling.LANCZOS)
 
               res_dir = pathlib.Path("app/src/main/res")
-              # Simpan ke drawable
               icon_512.save(res_dir / "drawable/ic_vilicht_logo.png", "PNG")
               icon_512.convert("RGB").save(res_dir / "drawable/vilicht_icon_1794323042231.jpg", "JPEG", quality=95)
 
-              # Timpa semua ukuran mipmap
               sizes = {
                   "mipmap-mdpi": 48,
                   "mipmap-hdpi": 72,
@@ -88,17 +85,28 @@ jobs:
                       resized.save(d / "ic_launcher.png", "PNG")
                       resized.save(d / "ic_launcher_round.png", "PNG")
 
-              # Update adaptive icon XML agar memakai @drawable/ic_vilicht_logo
+              # Pastikan warna ic_launcher_background tersedia di values/colors.xml
+              values_dir = res_dir / "values"
+              values_dir.mkdir(parents=True, exist_ok=True)
+              (values_dir / "ic_launcher_background.xml").write_text(textwrap.dedent("""\
+                  <?xml version="1.0" encoding="utf-8"?>
+                  <resources>
+                      <color name="ic_launcher_background">#13091F</color>
+                  </resources>
+              """))
+
+              # Update adaptive icon XML
               adaptive_dir = res_dir / "mipmap-anydpi-v26"
               if adaptive_dir.exists():
-                  adaptive_xml = """<?xml version="1.0" encoding="utf-8"?>
-          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-              <background android:drawable="@color/ic_launcher_background"/>
-              <foreground>
-                  <inset android:drawable="@drawable/ic_vilicht_logo" android:inset="16%" />
-              </foreground>
-          </adaptive-icon>
-          """
+                  adaptive_xml = textwrap.dedent("""\
+                      <?xml version="1.0" encoding="utf-8"?>
+                      <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+                          <background android:drawable="@color/ic_launcher_background"/>
+                          <foreground>
+                              <inset android:drawable="@drawable/ic_vilicht_logo" android:inset="16%" />
+                          </foreground>
+                      </adaptive-icon>
+                  """)
                   (adaptive_dir / "ic_launcher.xml").write_text(adaptive_xml)
                   (adaptive_dir / "ic_launcher_round.xml").write_text(adaptive_xml)
           '
