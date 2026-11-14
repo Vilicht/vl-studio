@@ -35,8 +35,9 @@ jobs:
       - name: Auto-patch error kompilasi
         run: |
           python3 - << 'EOF'
-          import pathlib
+          import pathlib, re
 
+          # 1. Patch ChromaKeyFilterRender.kt
           ck = pathlib.Path("app/src/main/java/com/example/gl/ChromaKeyFilterRender.kt")
           if ck.exists():
               txt = ck.read_text()
@@ -44,6 +45,7 @@ jobs:
                   txt = txt.replace("override fun release()", "override fun disableResources() {}\n\n    override fun release()")
                   ck.write_text(txt)
 
+          # 2. Patch StreamingService.kt
           ss = pathlib.Path("app/src/main/java/com/example/service/StreamingService.kt")
           if ss.exists():
               txt = ss.read_text()
@@ -52,6 +54,7 @@ jobs:
                   txt = txt.replace(target, target + " ?: throw IllegalStateException(\"MediaProjection null\")")
                   ss.write_text(txt)
 
+          # 3. Patch MainActivity.kt
           ma = pathlib.Path("app/src/main/java/com/example/MainActivity.kt")
           if ma.exists():
               txt = ma.read_text()
@@ -59,6 +62,20 @@ jobs:
               if "rememberSaveable" in txt and imp not in txt:
                   txt = txt.replace("package com.example\n", "package com.example\n\n" + imp + "\n", 1)
                   ma.write_text(txt)
+
+          # 4. Patch PropertiesPanel.kt baris 181 (named argument onClick)
+          pp = pathlib.Path("app/src/main/java/com/example/ui/components/PropertiesPanel.kt")
+          if pp.exists():
+              lines = pp.read_text().splitlines()
+              for i in range(max(0, 175), min(len(lines), 186)):
+                  print(f"LINE {i+1}: {lines[i]}")
+              if len(lines) >= 181:
+                  l = lines[180]
+                  # Ubah lambda tanpa nama di posisi argumen menjadi onClick = { ... }
+                  if "onClick =" not in l and "{ onUpdateSource(" in l:
+                      l = l.replace("{ onUpdateSource(", "onClick = { onUpdateSource(", 1)
+                      lines[180] = l
+                      pp.write_text("\n".join(lines) + "\n")
           EOF
 
       - name: Setup Java 21
