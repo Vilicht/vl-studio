@@ -34,7 +34,7 @@ jobs:
       - name: Auto-patch error kompilasi
         run: |
           python3 - << 'EOF'
-          import pathlib
+          import pathlib, re
 
           def add_import(file_path, import_stmt):
               p = pathlib.Path(file_path)
@@ -80,8 +80,19 @@ jobs:
               if bad in txt:
                   pp.write_text(txt.replace(bad, good))
 
-          # 5. Patch missing LazyColumn items(List) import di LeftPanel.kt
-          add_import("app/src/main/java/com/example/ui/components/LeftPanel.kt", "import androidx.compose.foundation.lazy.items")
+          # 5. Patch & cetak baris 110-125 LeftPanel.kt
+          lp = pathlib.Path("app/src/main/java/com/example/ui/components/LeftPanel.kt")
+          if lp.exists():
+              add_import("app/src/main/java/com/example/ui/components/LeftPanel.kt", "import androidx.compose.foundation.lazy.items")
+              lines = lp.read_text().splitlines()
+              print("=== DEBUG LEFTPANEL (BARIS 110-125) ===")
+              for idx in range(109, min(125, len(lines))):
+                  print(f"{idx+1}: {lines[idx]}")
+              print("=======================================")
+              # Perbaiki jika items(scenes, { it.id }) ditulis tanpa nama parameter key =
+              txt = "\n".join(lines)
+              txt = re.sub(r'\bitems\(\s*scenes\s*,\s*\{', 'items(items = scenes, key = {', txt)
+              lp.write_text(txt + "\n")
           EOF
 
       - name: Setup Java 21
