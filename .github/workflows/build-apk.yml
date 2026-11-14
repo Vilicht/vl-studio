@@ -3,13 +3,17 @@ name: VILICHT LIVE STUDIO - Auto Extract & Build APK
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
 
     steps:
       - name: Checkout Repository
@@ -21,8 +25,11 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      # Tidak menggunakan setup-android karena proses
+      # penerimaan lisensi sebelumnya berhenti interaktif.
+      - name: Accept Android SDK Licenses
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -34,7 +41,7 @@ jobs:
           ZIP_FILE="vilicht-live-studio-audit-stage3.zip"
 
           if [ ! -f "$ZIP_FILE" ]; then
-            echo "ERROR: File $ZIP_FILE tidak ditemukan!"
+            echo "ERROR: ZIP tidak ditemukan!"
             exit 1
           fi
 
@@ -44,7 +51,7 @@ jobs:
           PROJECT_DIR="extracted/vl-studio-main"
 
           if [ ! -d "$PROJECT_DIR/app" ]; then
-            echo "ERROR: Folder project Android tidak ditemukan!"
+            echo "ERROR: Struktur project tidak ditemukan!"
             find extracted -maxdepth 3 -type d
             exit 1
           fi
@@ -52,11 +59,11 @@ jobs:
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
       - name: Run Unit Tests
-        working-directory: ${{ github.workspace }}/extracted/vl-studio-main
+        working-directory: extracted/vl-studio-main
         run: gradle testDebugUnitTest --stacktrace
 
       - name: Build Debug APK
-        working-directory: ${{ github.workspace }}/extracted/vl-studio-main
+        working-directory: extracted/vl-studio-main
         run: gradle assembleDebug --stacktrace
 
       - name: Upload APK
