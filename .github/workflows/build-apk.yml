@@ -13,7 +13,7 @@ jobs:
       - name: Checkout kode
         uses: actions/checkout@v4
 
-      - name: Ekstrak vilicht-live-studio-audit-stage3.zip
+      - name: Ekstrak ZIP proyek terbaru
         run: |
           if [ -f "vilicht-live-studio-audit-stage3.zip" ]; then
             ZIP_FILE="vilicht-live-studio-audit-stage3.zip"
@@ -36,6 +36,19 @@ jobs:
           python3 - << 'EOF'
           import pathlib
 
+          def add_import(file_path, import_stmt):
+              p = pathlib.Path(file_path)
+              if not p.exists():
+                  return
+              txt = p.read_text()
+              if import_stmt not in txt:
+                  lines = txt.splitlines()
+                  for i, line in enumerate(lines):
+                      if line.strip().startswith("package "):
+                          lines.insert(i + 1, import_stmt)
+                          break
+                  p.write_text("\n".join(lines) + "\n")
+
           # 1. Patch ChromaKeyFilterRender.kt
           ck = pathlib.Path("app/src/main/java/com/example/gl/ChromaKeyFilterRender.kt")
           if ck.exists():
@@ -55,12 +68,8 @@ jobs:
 
           # 3. Patch MainActivity.kt
           ma = pathlib.Path("app/src/main/java/com/example/MainActivity.kt")
-          if ma.exists():
-              txt = ma.read_text()
-              imp = "import androidx.compose.runtime.saveable.rememberSaveable"
-              if "rememberSaveable" in txt and imp not in txt:
-                  txt = txt.replace("package com.example\n", "package com.example\n\n" + imp + "\n", 1)
-                  ma.write_text(txt)
+          if ma.exists() and "rememberSaveable" in ma.read_text():
+              add_import("app/src/main/java/com/example/MainActivity.kt", "import androidx.compose.runtime.saveable.rememberSaveable")
 
           # 4. Patch trailing lambda QuickAction di PropertiesPanel.kt
           pp = pathlib.Path("app/src/main/java/com/example/ui/components/PropertiesPanel.kt")
@@ -72,13 +81,7 @@ jobs:
                   pp.write_text(txt.replace(bad, good))
 
           # 5. Patch missing LazyColumn items(List) import di LeftPanel.kt
-          lp = pathlib.Path("app/src/main/java/com/example/ui/components/LeftPanel.kt")
-          if lp.exists():
-              txt = lp.read_text()
-              imp = "import androidx.compose.foundation.lazy.items"
-              if imp not in txt:
-                  txt = txt.replace("package com.example.ui.components\n", "package com.example.ui.components\n\n" + imp + "\n", 1)
-                  lp.write_text(txt)
+          add_import("app/src/main/java/com/example/ui/components/LeftPanel.kt", "import androidx.compose.foundation.lazy.items")
           EOF
 
       - name: Setup Java 21
