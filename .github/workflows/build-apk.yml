@@ -24,11 +24,12 @@ jobs:
             fi
           fi
 
-      - name: Auto-patch error kompilasi bawaan AI Studio
+      - name: Auto-patch error kompilasi
         run: |
-          python3 -c '
-          import pathlib
+          python3 - << 'EOF'
+          import pathlib, re
 
+          # 1. Patch ChromaKeyFilterRender.kt
           ck = pathlib.Path("app/src/main/java/com/example/gl/ChromaKeyFilterRender.kt")
           if ck.exists():
               txt = ck.read_text()
@@ -36,6 +37,7 @@ jobs:
                   txt = txt.replace("override fun release()", "override fun disableResources() {}\n\n    override fun release()")
                   ck.write_text(txt)
 
+          # 2. Patch StreamingService.kt
           ss = pathlib.Path("app/src/main/java/com/example/service/StreamingService.kt")
           if ss.exists():
               txt = ss.read_text()
@@ -44,6 +46,7 @@ jobs:
                   txt = txt.replace(target, target + " ?: throw IllegalStateException(\"MediaProjection null\")")
                   ss.write_text(txt)
 
+          # 3. Patch MainActivity.kt
           ma = pathlib.Path("app/src/main/java/com/example/MainActivity.kt")
           if ma.exists():
               txt = ma.read_text()
@@ -51,7 +54,21 @@ jobs:
               if "rememberSaveable" in txt and imp not in txt:
                   txt = txt.replace("package com.example\n", "package com.example\n\n" + imp + "\n", 1)
                   ma.write_text(txt)
-          '
+
+          # 4. Patch baris 181 di PropertiesPanel.kt (urutan argumen FilterChip / Button)
+          pp = pathlib.Path("app/src/main/java/com/example/ui/components/PropertiesPanel.kt")
+          if pp.exists():
+              lines = pp.read_text().splitlines()
+              if len(lines) >= 181:
+                  line = lines[180]
+                  # Jika ada pemanggilan FilterChip/Chip dengan argumen posisional terbalik (boolean, lambda) -> (selected = ..., onClick = ...)
+                  if "FilterChip(" in line and "onClick =" not in line:
+                      line = re.sub(r'FilterChip\(\s*([^,]+),\s*(\{[^}]+\})', r'FilterChip(selected = \1, onClick = \2', line)
+                  elif "onClick =" not in line and ", {" in line:
+                      line = line.replace(", {", ", onClick = {", 1)
+                  lines[180] = line
+                  pp.write_text("\n".join(lines) + "\n")
+          EOF
 
       - name: Pasang Ikon Baru dari app_icon_master.png
         run: |
@@ -71,23 +88,19 @@ jobs:
           drawable = res / "drawable"
           drawable.mkdir(parents=True, exist_ok=True)
 
-          # Hapus vector foreground lama agar tidak bentrok dengan PNG baru
           for old in ["ic_launcher_foreground.xml", "ic_launcher_background.xml"]:
               p = drawable / old
               if p.exists():
                   p.unlink()
 
-          # Buat kanvas adaptive 432x432 dengan safe-zone padding agar tidak terpotong launcher
           fg = Image.new("RGBA", (432, 432), (19, 9, 31, 255))
           inner = icon_512.resize((300, 300), Image.Resampling.LANCZOS)
           fg.paste(inner, (66, 66), inner)
           fg.save(drawable / "ic_launcher_foreground.png", "PNG")
 
-          # Simpan juga untuk logo in-app
           icon_512.save(drawable / "ic_vilicht_logo.png", "PNG")
           icon_512.convert("RGB").save(drawable / "vilicht_icon_1794323042231.jpg", "JPEG", quality=95)
 
-          # Buat background solid valid
           (drawable / "ic_launcher_background.xml").write_text(
               '<?xml version="1.0" encoding="utf-8"?>\n'
               '<shape xmlns:android="http://schemas.android.com/apk/res/android">\n'
@@ -95,7 +108,6 @@ jobs:
               '</shape>\n'
           )
 
-          # Timpa semua ukuran mipmap legacy
           sizes = {"mipmap-mdpi": 48, "mipmap-hdpi": 72, "mipmap-xhdpi": 96, "mipmap-xxhdpi": 144, "mipmap-xxxhdpi": 192}
           for folder, px in sizes.items():
               d = res / folder
@@ -104,7 +116,6 @@ jobs:
                   r.save(d / "ic_launcher.png", "PNG")
                   r.save(d / "ic_launcher_round.png", "PNG")
 
-          # Pastikan anydpi-v26 mengarah ke @drawable/ic_launcher_background & foreground
           anydpi = res / "mipmap-anydpi-v26"
           if anydpi.exists():
               xml_content = (
