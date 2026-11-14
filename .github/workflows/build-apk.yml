@@ -25,8 +25,6 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      # Tidak menggunakan setup-android karena proses
-      # penerimaan lisensi sebelumnya berhenti interaktif.
       - name: Accept Android SDK Licenses
         run: |
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses
@@ -57,6 +55,31 @@ jobs:
           fi
 
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+
+      - name: Restore Debug Keystore
+        uses: actions/cache@v4
+        with:
+          path: extracted/vl-studio-main/debug.keystore
+          key: vilicht-live-studio-debug-keystore-v1
+
+      - name: Generate Debug Keystore If Missing
+        working-directory: extracted/vl-studio-main
+        run: |
+          if [ ! -f debug.keystore ]; then
+            echo "Generating debug keystore..."
+
+            keytool -genkeypair -v \
+              -keystore debug.keystore \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          else
+            echo "Existing debug keystore restored."
+          fi
 
       - name: Run Unit Tests
         working-directory: extracted/vl-studio-main
