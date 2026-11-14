@@ -13,9 +13,13 @@ jobs:
       - name: Checkout kode
         uses: actions/checkout@v4
 
-      - name: Ekstrak ZIP proyek terbaru
+      - name: Ekstrak vilicht-live-studio-audit-stage3.zip
         run: |
-          ZIP_FILE=$(ls -t *.zip 2>/dev/null | head -n 1)
+          if [ -f "vilicht-live-studio-audit-stage3.zip" ]; then
+            ZIP_FILE="vilicht-live-studio-audit-stage3.zip"
+          else
+            ZIP_FILE=$(ls -t *.zip 2>/dev/null | head -n 1)
+          fi
 
           if [ -n "$ZIP_FILE" ]; then
             echo "Mengekstrak $ZIP_FILE..."
